@@ -1,43 +1,67 @@
-from flask import request, jsonify
-from config import app, db
-from models import Word, Game
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
 import random
+import os
 
-# Route principale pour le jeu du pendu
-@app.route("/pendu", methods=["GET"])
-def pendu_page():
-    return "Jeu du Pendu API"
+# Créer l'application Flask
+app = Flask(__name__)
+CORS(app)  # Permettre les requêtes cross-origin
+
+# Configuration de la base de données
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'pendu.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# Définir les modèles
+class Word(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    word = db.Column(db.String(100), nullable=False, unique=True)
+    
+    def to_json(self):
+        return {
+            "id": self.id,
+            "word": self.word
+        }
+
+class Game(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    word_id = db.Column(db.Integer, db.ForeignKey('word.id'), nullable=False)
+    guessed_letters = db.Column(db.String(100), default="")
+    attempts_left = db.Column(db.Integer, default=6)
+    status = db.Column(db.String(20), default="ongoing")
+    
+    # Relation avec le mot
+    word = db.relationship('Word', backref='games')
+    
+    def to_json(self):
+        return {
+            "id": self.id,
+            "maskedWord": self.get_masked_word(),
+            "guessedLetters": self.guessed_letters,
+            "attemptsLeft": self.attempts_left,
+            "status": self.status
+        }
+    
+    def get_masked_word(self):
+        if not self.word:
+            return ""
+        
+        masked = ""
+        for letter in self.word.word:
+            if letter in self.guessed_letters:
+                masked += letter
+            else:
+                masked += "_"
+        return masked
 
 # Routes du jeu
-@app.route("/pendu/words", methods=["GET"])
-def get_words():
-    words = Word.query.all()
-    return jsonify({"words": [word.to_json() for word in words]})
+@app.route("/", methods=["GET"])
+def index():
+    return "Jeu du Pendu API"
 
-@app.route("/pendu/words", methods=["POST"])
-def add_word():
-    data = request.json
-    word = data.get("word")
-    
-    if not word:
-        return jsonify({"message": "Il faut fournir un mot"}), 400
-    
-    # Vérifier si le mot existe déjà
-    existing_word = Word.query.filter_by(word=word.lower()).first()
-    if existing_word:
-        return jsonify({"message": "Ce mot existe déjà"}), 400
-    
-    # Ajouter le nouveau mot
-    new_word = Word(word=word.lower())
-    try:
-        db.session.add(new_word)
-        db.session.commit()
-        return jsonify({"message": "Mot ajouté avec succès", "word": new_word.to_json()}), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"message": f"Erreur: {str(e)}"}), 500
-
-@app.route("/pendu/games", methods=["POST"])
+@app.route("/games", methods=["POST"])
 def create_game():
     # Choisir un mot aléatoire
     words = Word.query.all()
@@ -57,7 +81,7 @@ def create_game():
     
     return jsonify({"message": "Nouvelle partie créée", "game": new_game.to_json()}), 201
 
-@app.route("/pendu/games/<int:game_id>", methods=["GET"])
+@app.route("/games/<int:game_id>", methods=["GET"])
 def get_game(game_id):
     game = Game.query.get(game_id)
     if not game:
@@ -65,7 +89,7 @@ def get_game(game_id):
     
     return jsonify({"game": game.to_json()})
 
-@app.route("/pendu/games/<int:game_id>/guess", methods=["POST"])
+@app.route("/games/<int:game_id>/guess", methods=["POST"])
 def make_guess(game_id):
     game = Game.query.get(game_id)
     if not game:
@@ -119,26 +143,35 @@ def make_guess(game_id):
     
     return jsonify(response)
 
-@app.route("/pendu/games", methods=["GET"])
-def get_games():
-    games = Game.query.all()
-    return jsonify({"games": [game.to_json() for game in games]})
+@app.route("/words", methods=["GET"])
+def get_words():
+    words = Word.query.all()
+    return jsonify({"words": [word.to_json() for word in words]})
 
-@app.route("/pendu/reset", methods=["POST"])
-def reset_database():
-    # Supprimer toutes les données existantes
-    db.session.query(Game).delete()
-    db.session.query(Word).delete()
-    db.session.commit()
+@app.route("/words", methods=["POST"])
+def add_word():
+    data = request.json
+    word = data.get("word")
     
-    # Ajouter des mots par défaut
-    default_words = ["python", "flask", "react", "javascript", "html", "css", "pendu", "jeu", "programmation", "code"]
-    for word in default_words:
-        db.session.add(Word(word=word.lower()))
-    db.session.commit()
+    if not word:
+        return jsonify({"message": "Il faut fournir un mot"}), 400
     
-    return jsonify({"message": "Base de données réinitialisée avec succès"}), 200
+    # Vérifier si le mot existe déjà
+    existing_word = Word.query.filter_by(word=word.lower()).first()
+    if existing_word:
+        return jsonify({"message": "Ce mot existe déjà"}), 400
+    
+    # Ajouter le nouveau mot
+    new_word = Word(word=word.lower())
+    try:
+        db.session.add(new_word)
+        db.session.commit()
+        return jsonify({"message": "Mot ajouté avec succès", "word": new_word.to_json()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": f"Erreur: {str(e)}"}), 500
 
+# Initialiser la base de données et lancer le serveur
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
@@ -152,4 +185,5 @@ if __name__ == "__main__":
                 db.session.add(Word(word=word.lower()))
             db.session.commit()
     
-    app.run(debug=True)
+    # Utiliser le port 5001 pour éviter les conflits
+    app.run(debug=True, port=5001)

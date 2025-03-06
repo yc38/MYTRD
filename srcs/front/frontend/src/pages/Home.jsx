@@ -18,11 +18,16 @@ function Home() {
         navigate("/selection")
     }
 
+    const handleHangman = () => {
+      navigate("/hangman")
+  }
+
 	return (
 		<div>
       <Navbarr></Navbarr>
       <button className='pong-button' onClick={() => handlePong()}></button>
-			<button className="logout-button" onClick={() => handleLogout()}><img className='logout-logo' src={logoutLogo} alt="logoutLogo" /></button>
+			<button className='hangman-button' onClick={() => handleHangman()}>Hangman</button>
+      <button className="logout-button" onClick={() => handleLogout()}><img className='logout-logo' src={logoutLogo} alt="logoutLogo" /></button>
 		</div>
     );
 }
